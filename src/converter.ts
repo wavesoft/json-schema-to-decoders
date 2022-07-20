@@ -5,6 +5,7 @@ import type {
   AnySchema,
   ArraySchema,
   BooleanSchema,
+  EnumSchema,
   NullSchema,
   NumericSchema,
   ObjectSchema,
@@ -141,6 +142,16 @@ function convertNull(obj: NullSchema, nsPrefix: string): string[] {
   return [`${nsPrefix}null_`];
 }
 
+function covnertEnum(obj: EnumSchema, nsPrefix: string): string[] {
+  const options = obj.enum ?? [];
+  if (options.length < 3) {
+    return [`${nsPrefix}oneOf([${JSON.stringify(obj.enum)}])`];
+  } else {
+    const lines = options.map((o) => JSON.stringify(o) + ",");
+    return [`${nsPrefix}oneOf([`, ...indentLines(lines, 2), `])`];
+  }
+}
+
 function isObject(type: Schema): type is ObjectSchema {
   if (typeof type === "string") return type === "object";
   if (!("type" in type)) return false;
@@ -188,7 +199,16 @@ function isAnyOf(type: Schema): type is AnyOfSchema {
   return "anyOf" in type;
 }
 
+function isEnum(type: Schema): type is EnumSchema {
+  if (typeof type !== "object") return false;
+  return "enum" in type && type.enum != null;
+}
+
 function convertUnknown(type: Schema, nsPrefix: string): string[] {
+  if (isEnum(type)) {
+    return covnertEnum(type, nsPrefix);
+  }
+
   if (isObject(type)) {
     return convertObject(type, nsPrefix);
   } else if (isArray(type)) {

@@ -1,8 +1,11 @@
 interface BaseSchema {
-  enum?: Array<string | number>;
   example?: string;
   description?: string;
   title?: string;
+}
+
+export interface EnumSchema {
+  enum: Array<string | number>;
 }
 
 // Object
@@ -100,4 +103,5 @@ export type Schema =
   | AnySchema
   | AnyOfSchema
   | BooleanSchema
-  | NullSchema;
+  | NullSchema
+  | EnumSchema;
