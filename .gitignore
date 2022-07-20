@@ -102,3 +102,9 @@ dist
 
 # TernJS port file
 .tern-port
+
+tsconfig.json
+.eslintrc.js
+.prettierrc
+jest.config.js
+.ide

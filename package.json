@@ -1,0 +1,24 @@
+{
+  "name": "json-schema-to-decoders",
+  "version": "1.0.0",
+  "description": "A utility for converting JSON schema definition to decoders",
+  "main": "index.js",
+  "repository": "git@github.com:wavesoft/json-schema-to-decoders.git",
+  "author": "Ioannis Charalampidis <johnys2@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "@apidevtools/swagger-parser": "^10.1.0",
+    "eilos": "^1.0.17",
+    "eilos-preset-typescript": "^1.0.19",
+    "json-schema-traverse": "^1.0.0"
+  },
+  "scripts": {
+    "build": "eilos build"
+  },
+  "eilos": {
+    "library": "json-schema-to-decoder",
+    "webpack": {
+      "target": "node"
+    }
+  }
+}
