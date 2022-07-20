@@ -217,5 +217,5 @@ export async function convertSchema(schema: Schema, nsPrefix: string = "") {
 export async function convertFile(filename: string, nsPrefix: string = "") {
   const contents = await readFile(filename);
   const schema = JSON.parse(contents.toString());
-  return convertSchema(schema);
+  return convertSchema(schema, nsPrefix);
 }
