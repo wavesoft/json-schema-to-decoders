@@ -1,5 +1,6 @@
 interface BaseSchema {
   example?: string;
+  examples?: string[];
   description?: string;
   title?: string;
 }

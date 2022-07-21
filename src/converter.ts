@@ -50,16 +50,19 @@ function getSchemaComment(schema: Schema): string[] {
   if (typeof schema !== "object") return [];
   const lines: string[] = [];
   if ("title" in schema && schema.title) {
-    lines.push(schema.title);
+    lines.push(`[${schema.title}]`);
   }
   if ("description" in schema && schema.description) {
-    if (lines.length > 1) lines.push("");
-    const desc = `(${schema.description})`;
+    const desc = `Description: ${schema.description}`;
     lines.push(...desc.split("\n"));
   }
   if ("example" in schema && schema.example) {
-    if (lines.length > 1) lines.push("");
     lines.push(`Example: ${schema.example}`);
+  }
+  if ("examples" in schema && schema.examples) {
+    for (const example of schema.examples ?? []) {
+      lines.push(`Example: ${example}`);
+    }
   }
   if (!lines.length) return [];
   return wrapLines("/* ", lines, " */", "   ");
@@ -278,7 +281,6 @@ export async function convert(url: string | Schema, nsPrefix: string = ""): Prom
   // otherwise assume it's a URL and load it from the network
   if (filePath) {
     return convertFile(filePath, nsPrefix);
-
   } else {
     // Otherwise use fetch API to load the contents
     const resp = await fetch(url);

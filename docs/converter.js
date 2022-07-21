@@ -20,12 +20,15 @@
     const ns = String(nsElm.value || "");
     let value = "/* Could not parse your input */";
     try {
-      const contents = await lib.convertContents(text, ns);
-      value = `/* Automatically converted from JSON schema */\nconst MyDecoder = ${contents}`;
+      const contents = (await lib.convertContents(text, ns)).trim() || "/* No output */";
+      value = `/* Automatically converted from JSON schema */\nconst MyDecoder = ${contents};`;
     } catch (e) {
       value = `/* Error: ${e.message} */`;
     }
-    outputEditor.setValue(value);
+    try {
+      value = prettier.format(value, { plugins: [prettierPlugins.babel] });
+    } catch (e) {}
+    outputEditor.setValue(value, -1);
   }
 
   function handleChange(text) {
