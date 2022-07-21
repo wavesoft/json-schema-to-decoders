@@ -18,12 +18,18 @@
   "scripts": {
     "build": "NODE_ENV=development eilos build",
     "prepack": "NODE_ENV=production eilos build",
+    "docs": "NODE_ENV=production eilos build && cp dist/index.js docs/lib.js",
     "prepare": "eilos config-ide"
   },
   "eilos": {
     "library": "json-schema-to-decoder",
+    "externals": [
+      "fs"
+    ],
     "webpack": {
-      "target": "node"
+      "output": {
+        "globalObject": "this"
+      }
     }
   },
   "files": [

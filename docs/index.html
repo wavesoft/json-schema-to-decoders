@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>JSON Schema to Decoders Converter</title>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div class="root">
+      <div class="title">
+        <div class="headline">
+          JSON Schema to <a href="https://decoders.cc/" target="_blank">Decoders.js</a> Converter
+        </div>
+        <div>
+          <input id="namespace" placeholder="Namespace Prefix" class="title-ns" />
+        </div>
+      </div>
+      <div class="editors">
+        <div>
+          <div class="editor-title">JSON schema input:</div>
+          <textarea id="doc-input"></textarea>
+        </div>
+        <div>
+          <div class="editor-title" style="text-align: right">Decoders output:</div>
+          <textarea id="doc-output"></textarea>
+        </div>
+      </div>
+    </div>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.8.0/ace.min.js"
+      integrity="sha512-f6PeEZ6Ds5UUBNWpYA0ECDziSHlb7BHApwBk9kE40mdMPR5Iy9LkbFlFwQXajPxSQVB00klU43WLgAiToqFecQ=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    ></script>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.8.0/theme-monokai.min.js"
+      integrity="sha512-wZYGbdk0giM73l8BLDNfSEziApAmH8DvXey6zNLG3QUgDeDsMAPm3FIdjhLwrGOWO0vdVHkVxeUzOBR0Hc/xBA=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    ></script>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.8.0/mode-javascript.min.js"
+      integrity="sha512-YTXoWGqn9pbJcdaqpRr6rWHjbSb8fohZFsgMuOlTwMGncpJ9Jij+1BwlAuUXokpusLYypwTpCz3b7hwVkoAjIg=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    ></script>
+    <script
+      src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.8.0/mode-hjson.min.js"
+      integrity="sha512-cQG2unIytWirA5ilq5EZILWaZUnCvvifrLyi3+bcB0QmsxZwdo6woA240IHXN5xF4Wy4KBKH5OuM5FGYM+piag=="
+      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
+    ></script>
+    <script src="lib.js" type="text/javascript"></script>
+    <script src="converter.js" type="text/javascript"></script>
+  </body>
+</html>

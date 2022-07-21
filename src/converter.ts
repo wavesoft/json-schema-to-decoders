@@ -1,5 +1,3 @@
-import fs from "fs";
-import util from "util";
 import type {
   AnyOfSchema,
   AnySchema,
@@ -14,7 +12,16 @@ import type {
   StringSchemaDef,
 } from "./types";
 
-const readFile = util.promisify(fs.readFile);
+declare global {
+  function __webpack_require__(url: string): any;
+}
+
+const isValidName = (str: string) => /^(?!\d)[\w$]+$/.test(str);
+
+function escapeName(str: string) {
+  if (!isValidName(str)) return `"${str.replace(/"/g, '\\"')}"`;
+  return str;
+}
 
 function indentLines(lines: string[], indent: number): string[] {
   const prefix = Array(indent).fill(" ").join("");
@@ -71,10 +78,16 @@ function convertObject(obj: ObjectSchema, nsPrefix: string): string[] {
       const schema = props[name]!;
       propLines.push(...getSchemaComment(schema));
       if (required.includes(name)) {
-        propLines.push(...wrapLines(`${name}: `, convertUnknown(schema, nsPrefix), ","));
+        propLines.push(
+          ...wrapLines(`${escapeName(name)}: `, convertUnknown(schema, nsPrefix), ",")
+        );
       } else {
         propLines.push(
-          ...wrapLines(`${name}: ${nsPrefix}optional(`, convertUnknown(schema, nsPrefix), "),")
+          ...wrapLines(
+            `${escapeName(name)}: ${nsPrefix}optional(`,
+            convertUnknown(schema, nsPrefix),
+            "),"
+          )
         );
       }
     }
@@ -224,18 +237,54 @@ function convertUnknown(type: Schema, nsPrefix: string): string[] {
   } else if (isNull(type)) {
     return convertNull(type, nsPrefix);
   } else if (isAny(type)) {
-    return [`${nsPrefix}unknown()`];
+    return [`${nsPrefix}unknown`];
   }
   return ["/* Unknown type */"];
 }
 
-export async function convertSchema(schema: Schema, nsPrefix: string = "") {
+export async function convertSchema(schema: Schema, nsPrefix: string = ""): Promise<string> {
   const lines = convertUnknown(schema, nsPrefix);
   return lines.join("\n");
 }
 
-export async function convertFile(filename: string, nsPrefix: string = "") {
-  const contents = await readFile(filename);
-  const schema = JSON.parse(contents.toString());
-  return convertSchema(schema, nsPrefix);
+export async function convertContents(buffer: string, nsPrefix: string = ""): Promise<string> {
+  if (!buffer) return "";
+  const content: Schema = JSON.parse(buffer);
+  return convertSchema(content, nsPrefix);
+}
+
+export async function convertFile(file: string, nsPrefix: string = ""): Promise<string> {
+  // If we have some file path, try to use filesystem (node) to load the contents
+  const fs = require("fs");
+  if (fs == null) {
+    throw new TypeError("Filesystem is only available on node");
+  }
+  const bufer = fs.readFileSync(file, "utf8");
+  const content = JSON.parse(bufer.toString());
+  return convertSchema(content, nsPrefix);
+}
+
+export async function convert(url: string | Schema, nsPrefix: string = ""): Promise<string> {
+  // If we were given an object, use directly the converter
+  if (typeof url !== "string") {
+    return convertSchema(url, nsPrefix);
+  }
+
+  // Otherwise try to load the contents
+  const filePath = url.startsWith("file:") ? url.substring(5) : url.includes(":") ? null : url;
+  let json: Schema;
+
+  // If this was a path to file, check if we are in node context to load it from the filesystem
+  // otherwise assume it's a URL and load it from the network
+  if (filePath) {
+    return convertFile(filePath, nsPrefix);
+
+  } else {
+    // Otherwise use fetch API to load the contents
+    const resp = await fetch(url);
+    json = await resp.json();
+  }
+
+  // Convert contents
+  return convertSchema(json, nsPrefix);
 }
