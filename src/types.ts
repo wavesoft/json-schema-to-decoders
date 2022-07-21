@@ -88,11 +88,15 @@ type AnyOfSchemaDef = {
   anyOf: Array<Schema>;
 };
 
+type OneOfSchemaDef = {
+  oneOf: Array<Schema>;
+};
+
 type AnyOfAsTypeArray = {
   type: Array<Schema>;
 };
 
-export type AnyOfSchema = AnyOfSchemaDef | AnyOfAsTypeArray | Schema[];
+export type AnyOfSchema = AnyOfSchemaDef | OneOfSchemaDef | AnyOfAsTypeArray | Schema[];
 
 // Type union
 

@@ -131,7 +131,13 @@ function convertString(obj: StringSchema, nsPrefix: string): string[] {
 function convertAnyOf(obj: AnyOfSchema, nsPrefix: string): string[] {
   const ret: string[] = [`${nsPrefix}either(`];
   const schemaLines: string[] = [];
-  const types = Array.isArray(obj) ? obj : "type" in obj ? obj.type : obj.anyOf ?? [];
+  const types = Array.isArray(obj)
+    ? obj
+    : "type" in obj
+    ? obj.type
+    : "anyOf" in obj
+    ? obj.anyOf
+    : obj.oneOf ?? [];
   for (const schema of types) {
     schemaLines.push(...wrapLines("", convertUnknown(schema, nsPrefix), ","));
   }
@@ -161,7 +167,7 @@ function convertNull(obj: NullSchema, nsPrefix: string): string[] {
 function covnertEnum(obj: EnumSchema, nsPrefix: string): string[] {
   const options = obj.enum ?? [];
   if (options.length < 3) {
-    return [`${nsPrefix}oneOf([${JSON.stringify(obj.enum)}])`];
+    return [`${nsPrefix}oneOf(${JSON.stringify(obj.enum)})`];
   } else {
     const lines = options.map((o) => JSON.stringify(o) + ",");
     return [`${nsPrefix}oneOf([`, ...indentLines(lines, 2), `])`];
@@ -212,7 +218,7 @@ function isAnyOf(type: Schema): type is AnyOfSchema {
   if (typeof type !== "object") return false;
   if (Array.isArray(type)) return true;
   if ("type" in type && Array.isArray(type.type)) return true;
-  return "anyOf" in type;
+  return "anyOf" in type || "oneOf" in type;
 }
 
 function isEnum(type: Schema): type is EnumSchema {
@@ -242,6 +248,8 @@ function convertUnknown(type: Schema, nsPrefix: string): string[] {
   } else if (isAny(type)) {
     return [`${nsPrefix}unknown`];
   }
+
+  console.log("unknown=", type);
   return ["/* Unknown type */"];
 }
 
