@@ -20,7 +20,8 @@
     const ns = String(nsElm.value || "");
     let value = "/* Could not parse your input */";
     try {
-      const contents = (await lib.convertContents(text, ns)).trim() || "/* No output */";
+      const contents =
+        (await lib.convertContents(text, { nsPrefix: ns })).trim() || "/* No output */";
       value = `/* Automatically converted from JSON schema */\nconst MyDecoder = ${contents};`;
     } catch (e) {
       value = `/* Error: ${e.message} */`;

@@ -98,6 +98,10 @@ type AnyOfAsTypeArray = {
 
 export type AnyOfSchema = AnyOfSchemaDef | OneOfSchemaDef | AnyOfAsTypeArray | Schema[];
 
+// Ref schema
+
+export type RefSchema = { $ref: string };
+
 // Type union
 
 export type Schema =
@@ -109,4 +113,5 @@ export type Schema =
   | AnyOfSchema
   | BooleanSchema
   | NullSchema
-  | EnumSchema;
+  | EnumSchema
+  | RefSchema;

@@ -3,7 +3,7 @@
   "version": "0.1.5",
   "description": "A utility for converting JSON schema definition to decoders",
   "main": "dist/index.js",
-  "types": "dist/src/index.d.ts",
+  "types": "dist/index.d.ts",
   "repository": "git@github.com:wavesoft/json-schema-to-decoders.git",
   "author": "Ioannis Charalampidis <johnys2@gmail.com>",
   "license": "MIT",

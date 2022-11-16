@@ -7,13 +7,23 @@ import type {
   NullSchema,
   NumericSchema,
   ObjectSchema,
+  RefSchema,
   Schema,
   StringSchema,
   StringSchemaDef,
 } from "./types";
 
-declare global {
-  function __webpack_require__(url: string): any;
+export interface ConverterOptions {
+  /**
+   * An optional namespace where to look for decoder functions into
+   */
+  nsPrefix?: string;
+
+  /**
+   * An optional function to call when a $ref is encountered.
+   * The returned value will replace the contents of that ref.
+   */
+  resolveRef?: (name: string) => string;
 }
 
 const isValidName = (str: string) => /^(?!\d)[\w$]+$/.test(str);
@@ -68,7 +78,8 @@ function getSchemaComment(schema: Schema): string[] {
   return wrapLines("/* ", lines, " */", "   ");
 }
 
-function convertObject(obj: ObjectSchema, nsPrefix: string): string[] {
+function convertObject(obj: ObjectSchema, opt: ConverterOptions): string[] {
+  const { nsPrefix } = opt;
   const ret: string[] = [`${nsPrefix}object({`];
   if (typeof obj !== "string") {
     const required = obj.required ?? [];
@@ -81,14 +92,12 @@ function convertObject(obj: ObjectSchema, nsPrefix: string): string[] {
       const schema = props[name]!;
       propLines.push(...getSchemaComment(schema));
       if (required.includes(name)) {
-        propLines.push(
-          ...wrapLines(`${escapeName(name)}: `, convertUnknown(schema, nsPrefix), ",")
-        );
+        propLines.push(...wrapLines(`${escapeName(name)}: `, convertUnknown(schema, opt), ","));
       } else {
         propLines.push(
           ...wrapLines(
             `${escapeName(name)}: ${nsPrefix}optional(`,
-            convertUnknown(schema, nsPrefix),
+            convertUnknown(schema, opt),
             "),"
           )
         );
@@ -100,12 +109,14 @@ function convertObject(obj: ObjectSchema, nsPrefix: string): string[] {
   return ret;
 }
 
-function convertArray(obj: ArraySchema, nsPrefix: string): string[] {
+function convertArray(obj: ArraySchema, opt: ConverterOptions): string[] {
+  const { nsPrefix } = opt;
   const schema = typeof obj === "string" ? "any" : obj.items ?? "any";
-  return wrapLines(`${nsPrefix}array(`, convertUnknown(schema, nsPrefix), ")");
+  return wrapLines(`${nsPrefix}array(`, convertUnknown(schema, opt), ")");
 }
 
-function convertString(obj: StringSchema, nsPrefix: string): string[] {
+function convertString(obj: StringSchema, opt: ConverterOptions): string[] {
+  const { nsPrefix } = opt;
   const def: StringSchemaDef = typeof obj === "string" ? { type: "string" } : obj;
   if (def.pattern) {
     return [`${nsPrefix}regex(/${def.pattern}/)`];
@@ -128,7 +139,8 @@ function convertString(obj: StringSchema, nsPrefix: string): string[] {
   return [`${nsPrefix}string`];
 }
 
-function convertAnyOf(obj: AnyOfSchema, nsPrefix: string): string[] {
+function convertAnyOf(obj: AnyOfSchema, opt: ConverterOptions): string[] {
+  const { nsPrefix } = opt;
   const ret: string[] = [`${nsPrefix}either(`];
   const schemaLines: string[] = [];
   const types = Array.isArray(obj)
@@ -139,14 +151,15 @@ function convertAnyOf(obj: AnyOfSchema, nsPrefix: string): string[] {
     ? obj.anyOf
     : obj.oneOf ?? [];
   for (const schema of types) {
-    schemaLines.push(...wrapLines("", convertUnknown(schema, nsPrefix), ","));
+    schemaLines.push(...wrapLines("", convertUnknown(schema, opt), ","));
   }
   ret.push(...indentLines(schemaLines, 2));
   ret.push(")");
   return ret;
 }
 
-function convertNumber(obj: NumericSchema, nsPrefix: string): string[] {
+function convertNumber(obj: NumericSchema, opt: ConverterOptions): string[] {
+  const { nsPrefix } = opt;
   if (
     (typeof obj === "string" && obj === "integer") ||
     (typeof obj === "object" && obj.type === "integer")
@@ -156,15 +169,18 @@ function convertNumber(obj: NumericSchema, nsPrefix: string): string[] {
   return [`${nsPrefix}number`];
 }
 
-function convertBoolean(obj: BooleanSchema, nsPrefix: string): string[] {
+function convertBoolean(obj: BooleanSchema, opt: ConverterOptions): string[] {
+  const { nsPrefix } = opt;
   return [`${nsPrefix}boolean`];
 }
 
-function convertNull(obj: NullSchema, nsPrefix: string): string[] {
+function convertNull(obj: NullSchema, opt: ConverterOptions): string[] {
+  const { nsPrefix } = opt;
   return [`${nsPrefix}null_`];
 }
 
-function covnertEnum(obj: EnumSchema, nsPrefix: string): string[] {
+function covnertEnum(obj: EnumSchema, opt: ConverterOptions): string[] {
+  const { nsPrefix } = opt;
   const options = obj.enum ?? [];
   if (options.length < 3) {
     return [`${nsPrefix}oneOf(${JSON.stringify(obj.enum)})`];
@@ -214,6 +230,10 @@ function isAny(type: Schema): type is AnySchema {
   return typeof type === "string" && type === "any";
 }
 
+function isRef(type: Schema): type is RefSchema {
+  return typeof type === "object" && "$ref" in type;
+}
+
 function isAnyOf(type: Schema): type is AnyOfSchema {
   if (typeof type !== "object") return false;
   if (Array.isArray(type)) return true;
@@ -226,45 +246,57 @@ function isEnum(type: Schema): type is EnumSchema {
   return "enum" in type && type.enum != null;
 }
 
-function convertUnknown(type: Schema, nsPrefix: string): string[] {
+function convertUnknown(type: Schema, opt: ConverterOptions): string[] {
+  const { nsPrefix, resolveRef } = opt;
+
   if (isEnum(type)) {
-    return covnertEnum(type, nsPrefix);
+    return covnertEnum(type, opt);
   }
 
   if (isObject(type)) {
-    return convertObject(type, nsPrefix);
+    return convertObject(type, opt);
   } else if (isArray(type)) {
-    return convertArray(type, nsPrefix);
+    return convertArray(type, opt);
   } else if (isString(type)) {
-    return convertString(type, nsPrefix);
+    return convertString(type, opt);
   } else if (isNumeric(type)) {
-    return convertNumber(type, nsPrefix);
+    return convertNumber(type, opt);
   } else if (isAnyOf(type)) {
-    return convertAnyOf(type, nsPrefix);
+    return convertAnyOf(type, opt);
   } else if (isBoolean(type)) {
-    return convertBoolean(type, nsPrefix);
+    return convertBoolean(type, opt);
   } else if (isNull(type)) {
-    return convertNull(type, nsPrefix);
+    return convertNull(type, opt);
   } else if (isAny(type)) {
     return [`${nsPrefix}unknown`];
+  } else if (isRef(type)) {
+    if (resolveRef) {
+      return [resolveRef(type.$ref)];
+    } else {
+      return [`/* Unknown reference "${type.$ref}" */`];
+    }
   }
 
   console.log("unknown=", type);
   return ["/* Unknown type */"];
 }
 
-export async function convertSchema(schema: Schema, nsPrefix: string = ""): Promise<string> {
-  const lines = convertUnknown(schema, nsPrefix);
+export async function convertSchema(schema: Schema, options?: ConverterOptions): Promise<string> {
+  const opt: ConverterOptions = {
+    nsPrefix: options?.nsPrefix ?? "",
+    resolveRef: options?.resolveRef,
+  };
+  const lines = convertUnknown(schema, opt);
   return lines.join("\n");
 }
 
-export async function convertContents(buffer: string, nsPrefix: string = ""): Promise<string> {
+export async function convertContents(buffer: string, options?: ConverterOptions): Promise<string> {
   if (!buffer) return "";
   const content: Schema = JSON.parse(buffer);
-  return convertSchema(content, nsPrefix);
+  return convertSchema(content, options);
 }
 
-export async function convertFile(file: string, nsPrefix: string = ""): Promise<string> {
+export async function convertFile(file: string, options?: ConverterOptions): Promise<string> {
   // If we have some file path, try to use filesystem (node) to load the contents
   const fs = require("fs");
   if (fs == null) {
@@ -272,13 +304,13 @@ export async function convertFile(file: string, nsPrefix: string = ""): Promise<
   }
   const bufer = fs.readFileSync(file, "utf8");
   const content = JSON.parse(bufer.toString());
-  return convertSchema(content, nsPrefix);
+  return convertSchema(content, options);
 }
 
-export async function convert(url: string | Schema, nsPrefix: string = ""): Promise<string> {
+export async function convert(url: string | Schema, options?: ConverterOptions): Promise<string> {
   // If we were given an object, use directly the converter
   if (typeof url !== "string") {
-    return convertSchema(url, nsPrefix);
+    return convertSchema(url, options);
   }
 
   // Otherwise try to load the contents
@@ -288,7 +320,7 @@ export async function convert(url: string | Schema, nsPrefix: string = ""): Prom
   // If this was a path to file, check if we are in node context to load it from the filesystem
   // otherwise assume it's a URL and load it from the network
   if (filePath) {
-    return convertFile(filePath, nsPrefix);
+    return convertFile(filePath, options);
   } else {
     // Otherwise use fetch API to load the contents
     const resp = await fetch(url);
@@ -296,5 +328,5 @@ export async function convert(url: string | Schema, nsPrefix: string = ""): Prom
   }
 
   // Convert contents
-  return convertSchema(json, nsPrefix);
+  return convertSchema(json, options);
 }
