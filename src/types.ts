@@ -18,6 +18,7 @@ interface ObjectSchemaDef extends BaseSchema {
   required?: Array<string>;
   minProperties?: number;
   maxProperties?: number;
+  allOf?: Array<Schema>;
 }
 
 export type ObjectSchema = ObjectSchemaDef | "object";

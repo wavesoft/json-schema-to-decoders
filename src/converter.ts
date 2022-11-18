@@ -96,7 +96,7 @@ function getSchemaComment(schema: Schema): string[] {
 function convertObject(obj: ObjectSchema, opt: ConverterOptions): string[] {
   const { nsPrefix } = opt;
   const inexact = typeof obj === "string" || (typeof obj !== "string" && obj.additionalProperties);
-  const ret: string[] = [`${nsPrefix}${inexact ? "inexact" : "object"}({`];
+  let ret: string[] = [`${nsPrefix}${inexact ? "inexact" : "object"}({`];
   if (typeof obj !== "string") {
     const required = obj.required ?? [];
     const propLines: string[] = [];
@@ -122,6 +122,25 @@ function convertObject(obj: ObjectSchema, opt: ConverterOptions): string[] {
     ret.push(...indentLines(propLines, 2));
   }
   ret.push("})");
+
+  // If thre is an `allOf` property, convert the object into a union,
+  // including the additional props from the allOf
+  if (typeof obj === "object" && obj.allOf) {
+    const union = opt.lib?.union;
+    if (!union) {
+      return [`/* Requires 'union' decoder to work */`];
+    }
+
+    // Wrap object definition and include additional schemas
+    ret = [`${union}(`, ...wrapLines("", ret, ",")];
+    const schemaLines: string[] = [];
+    for (const schema of obj.allOf) {
+      schemaLines.push(...wrapLines("", convertUnknown(schema, opt), ","));
+    }
+    ret.push(...indentLines(schemaLines, 2));
+    ret.push(")");
+  }
+
   return ret;
 }
 
