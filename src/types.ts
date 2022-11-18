@@ -98,6 +98,24 @@ type AnyOfAsTypeArray = {
 
 export type AnyOfSchema = AnyOfSchemaDef | OneOfSchemaDef | AnyOfAsTypeArray | Schema[];
 
+// AllOf Schema
+
+export type AllOfSchemaDef = {
+  allOf: Array<Schema>;
+};
+
+type AllOfDiscriminator = {
+  propertyName: string;
+  mapping?: Record<string, string>;
+};
+
+export type AllOfWithDiscriminatorDef = {
+  allOf: Array<Schema>;
+  discriminator: AllOfDiscriminator;
+};
+
+export type AllOfSchema = AllOfSchemaDef | AllOfWithDiscriminatorDef;
+
 // Ref schema
 
 export type RefSchema = { $ref: string };
@@ -110,6 +128,7 @@ export type Schema =
   | StringSchema
   | NumericSchema
   | AnySchema
+  | AllOfSchema
   | AnyOfSchema
   | BooleanSchema
   | NullSchema

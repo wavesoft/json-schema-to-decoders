@@ -21,7 +21,8 @@
     let value = "/* Could not parse your input */";
     try {
       const contents =
-        (await lib.convertContents(text, { nsPrefix: ns })).trim() || "/* No output */";
+        (await lib.convertContents(text, { nsPrefix: ns, lib: { union: "union" } })).trim() ||
+        "/* No output */";
       value = `/* Automatically converted from JSON schema */\nconst MyDecoder = ${contents};`;
     } catch (e) {
       value = `/* Error: ${e.message} */`;

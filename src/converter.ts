@@ -1,4 +1,5 @@
 import type {
+  AllOfSchema,
   AnyOfSchema,
   AnySchema,
   ArraySchema,
@@ -13,6 +14,15 @@ import type {
   StringSchemaDef,
 } from "./types";
 
+interface DecoderLib {
+  /**
+   * Indicates that the union decoder is available (check README.md)
+   *
+   * This variable should point to the function name for the `union` decoder.
+   */
+  union?: string;
+}
+
 export interface ConverterOptions {
   /**
    * An optional namespace where to look for decoder functions into
@@ -24,6 +34,11 @@ export interface ConverterOptions {
    * The returned value will replace the contents of that ref.
    */
   resolveRef?: (name: string) => string;
+
+  /**
+   * Indicates that non-standard decoders that are available
+   */
+  lib?: DecoderLib;
 }
 
 const isValidName = (str: string) => /^(?!\d)[\w$]+$/.test(str);
@@ -80,7 +95,8 @@ function getSchemaComment(schema: Schema): string[] {
 
 function convertObject(obj: ObjectSchema, opt: ConverterOptions): string[] {
   const { nsPrefix } = opt;
-  const ret: string[] = [`${nsPrefix}object({`];
+  const inexact = typeof obj === "string" || (typeof obj !== "string" && obj.additionalProperties);
+  const ret: string[] = [`${nsPrefix}${inexact ? "inexact" : "object"}({`];
   if (typeof obj !== "string") {
     const required = obj.required ?? [];
     const propLines: string[] = [];
@@ -155,6 +171,34 @@ function convertAnyOf(obj: AnyOfSchema, opt: ConverterOptions): string[] {
   }
   ret.push(...indentLines(schemaLines, 2));
   ret.push(")");
+  return ret;
+}
+
+function convertAllOf(obj: AllOfSchema, opt: ConverterOptions): string[] {
+  const { nsPrefix } = opt;
+  const ret: string[] = [];
+
+  if ("discriminator" in obj) {
+    // NOTE: Normally we should use `taggedUnion` however it's not possible
+    //       to know the values for the discriminator. So instead we are
+    //       using the fallback to the next best thing: `either`
+    ret.push(`${nsPrefix}either(`);
+  } else {
+    const union = opt.lib?.union;
+    if (!union) {
+      return [`/* Requires 'union' decoder to work */`];
+    }
+
+    ret.push(`${union}(`);
+  }
+
+  const schemaLines: string[] = [];
+  for (const schema of obj.allOf) {
+    schemaLines.push(...wrapLines("", convertUnknown(schema, opt), ","));
+  }
+  ret.push(...indentLines(schemaLines, 2));
+  ret.push(")");
+
   return ret;
 }
 
@@ -246,6 +290,12 @@ function isEnum(type: Schema): type is EnumSchema {
   return "enum" in type && type.enum != null;
 }
 
+function isAllOf(type: Schema): type is AllOfSchema {
+  if (typeof type !== "object") return false;
+  if ("allOf" in type && Array.isArray(type.allOf)) return true;
+  return false;
+}
+
 function convertUnknown(type: Schema, opt: ConverterOptions): string[] {
   const { nsPrefix, resolveRef } = opt;
 
@@ -263,6 +313,8 @@ function convertUnknown(type: Schema, opt: ConverterOptions): string[] {
     return convertNumber(type, opt);
   } else if (isAnyOf(type)) {
     return convertAnyOf(type, opt);
+  } else if (isAllOf(type)) {
+    return convertAllOf(type, opt);
   } else if (isBoolean(type)) {
     return convertBoolean(type, opt);
   } else if (isNull(type)) {
@@ -277,7 +329,6 @@ function convertUnknown(type: Schema, opt: ConverterOptions): string[] {
     }
   }
 
-  console.log("unknown=", type);
   return ["/* Unknown type */"];
 }
 
@@ -285,6 +336,7 @@ export async function convertSchema(schema: Schema, options?: ConverterOptions):
   const opt: ConverterOptions = {
     nsPrefix: options?.nsPrefix ?? "",
     resolveRef: options?.resolveRef,
+    lib: options?.lib ?? {},
   };
   const lines = convertUnknown(schema, opt);
   return lines.join("\n");
