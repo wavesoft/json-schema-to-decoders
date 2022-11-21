@@ -95,15 +95,22 @@ function getSchemaComment(schema: Schema): string[] {
 
 function convertObject(obj: ObjectSchema, opt: ConverterOptions): string[] {
   const { nsPrefix } = opt;
-  const inexact = typeof obj === "string" || (typeof obj !== "string" && obj.additionalProperties);
+  // There are two cases where we can do partial matching
+  const inexact =
+    typeof obj === "string" || // Plain 'object' types imply loosely matched objects
+    (typeof obj !== "string" && obj.additionalProperties === true); // Objects with additional properties
+
+  // Prepare the return lines
   let ret: string[] = [`${nsPrefix}${inexact ? "inexact" : "object"}({`];
   if (typeof obj !== "string") {
     const required = obj.required ?? [];
     const propLines: string[] = [];
+    const schemaLines: string[] = [];
     const props = obj.properties ?? {};
     const keys = Object.keys(props);
     keys.sort();
 
+    // Process well-known properties
     for (const name of keys) {
       const schema = props[name]!;
       propLines.push(...getSchemaComment(schema));
@@ -119,7 +126,41 @@ function convertObject(obj: ObjectSchema, opt: ConverterOptions): string[] {
         );
       }
     }
-    ret.push(...indentLines(propLines, 2));
+
+    // If the additional properties is a schema, create a decoder for that schema
+    if ("additionalProperties" in obj && typeof obj.additionalProperties === "object") {
+      const schema = convertUnknown(obj.additionalProperties, opt);
+      schemaLines.push(...wrapLines(`${nsPrefix}mapping(`, schema, `)`));
+    }
+
+    if (schemaLines.length && propLines.length) {
+      // If we have both schema and well-defined props, create a blend
+      ret.push(...indentLines(propLines, 2));
+      ret.push("})");
+
+      // We must use the union decoder for this
+      const union = opt.lib?.union;
+      if (!union) {
+        return [`/* Requires 'union' decoder to work */`];
+      }
+
+      return wrapLines(
+        `${union}(`,
+        [
+          // Include the explicit properties
+          ...wrapLines("", indentLines(ret, 2), ","),
+          // Include the mapping properties
+          ...indentLines(schemaLines, 2),
+        ],
+        `)`
+      );
+    } else if (schemaLines.length) {
+      // If we have only schema, use only the mapping decoder
+      return schemaLines;
+    } else {
+      // If we have only properties, include them in the result
+      ret.push(...indentLines(propLines, 2));
+    }
   }
   ret.push("})");
 

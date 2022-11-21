@@ -14,7 +14,7 @@ export interface EnumSchema {
 interface ObjectSchemaDef extends BaseSchema {
   type: "object";
   properties?: Record<string, Schema>;
-  additionalProperties?: boolean;
+  additionalProperties?: boolean | Schema;
   required?: Array<string>;
   minProperties?: number;
   maxProperties?: number;
