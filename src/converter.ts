@@ -130,7 +130,7 @@ function convertObject(obj: ObjectSchema, opt: ConverterOptions): string[] {
     // If the additional properties is a schema, create a decoder for that schema
     if ("additionalProperties" in obj && typeof obj.additionalProperties === "object") {
       const schema = convertUnknown(obj.additionalProperties, opt);
-      schemaLines.push(...wrapLines(`${nsPrefix}mapping(`, schema, `)`));
+      schemaLines.push(...wrapLines(`${nsPrefix}dict(`, schema, `)`));
     }
 
     if (schemaLines.length && propLines.length) {
@@ -149,13 +149,13 @@ function convertObject(obj: ObjectSchema, opt: ConverterOptions): string[] {
         [
           // Include the explicit properties
           ...wrapLines("", indentLines(ret, 2), ","),
-          // Include the mapping properties
+          // Include the dict properties
           ...indentLines(schemaLines, 2),
         ],
         `)`
       );
     } else if (schemaLines.length) {
-      // If we have only schema, use only the mapping decoder
+      // If we have only schema, use only the dict decoder
       return schemaLines;
     } else {
       // If we have only properties, include them in the result
