@@ -1,0 +1,22 @@
+name: Testing
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  publish:
+    name: Schema validation checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3.1.0
+      - uses: actions/cache@v3.0.11
+        with:
+          path: "**/node_modules"
+          key: ${{ runner.os }}-modules-${{ hashFiles('**/yarn.lock') }}
+      - uses: actions/setup-node@v3.5.1
+        with:
+          node-version: "14"
+      - run: yarn install
+        if: steps.cache.outputs.cache-hit != 'true'
+      - run: yarn test
