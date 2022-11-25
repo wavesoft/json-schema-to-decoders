@@ -590,7 +590,8 @@ function isAnyOf(type: Schema): type is AnyOfLikeSchema {
   if (typeof type !== "object") return false;
   if (Array.isArray(type)) return true;
   if ("type" in type && Array.isArray(type.type)) return true;
-  return "anyOf" in type || "oneOf" in type;
+  if ("anyOf" in type && Array.isArray(type.anyOf)) return true;
+  return false;
 }
 
 function isEnum(type: Schema): type is EnumSchema {

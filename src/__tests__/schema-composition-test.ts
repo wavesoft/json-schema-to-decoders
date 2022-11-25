@@ -52,4 +52,22 @@ describe("JSON Schema Composition", () => {
     expect(dec1.decode(12).ok).toBeTruthy();
     expect(dec1.decode(-5).ok).toBeFalsy();
   });
+
+  test("oneOf", () => {
+    // https://json-schema.org/understanding-json-schema/reference/combining.html#oneOf
+
+    // NOTE: This is implemented as a poly-fill that acts as `anyOf`, so this test
+    //       is copy-pasted from above.
+    const dec1 = createValidator({
+      oneOf: [
+        { type: "string", maxLength: 5 },
+        { type: "number", minimum: 0 },
+      ],
+    });
+
+    expect(dec1.decode("short").ok).toBeTruthy();
+    expect(dec1.decode("too long").ok).toBeFalsy();
+    expect(dec1.decode(12).ok).toBeTruthy();
+    expect(dec1.decode(-5).ok).toBeFalsy();
+  });
 });
