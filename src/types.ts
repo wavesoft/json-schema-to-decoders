@@ -3,53 +3,75 @@ interface BaseSchema {
   examples?: string[];
   description?: string;
   title?: string;
+
+  allOf?: Partial<Schema>[];
+  anyOf?: Partial<Schema>[];
+  oneOf?: Partial<Schema>[];
 }
 
-export interface EnumSchema {
-  enum: Array<string | number>;
+export interface EnumSchema extends BaseSchema {
+  enum: Array<string | number | null>;
+}
+
+export interface ConstSchema extends BaseSchema {
+  const: string | number | null;
 }
 
 // Object
 
-interface ObjectSchemaDef extends BaseSchema {
-  type: "object";
-  properties?: Record<string, Schema>;
+interface ImplicitObjectSchemaDef extends BaseSchema {
   additionalProperties?: boolean | Schema;
-  required?: Array<string>;
-  minProperties?: number;
   maxProperties?: number;
-  allOf?: Array<Schema>;
+  minProperties?: number;
+  patternProperties?: Record<string, Schema>;
+  properties?: Record<string, Schema>;
+  propertyNames?: { pattern: string };
+  required?: Array<string>;
 }
 
-export type ObjectSchema = ObjectSchemaDef | "object";
+interface ObjectSchemaDef extends ImplicitObjectSchemaDef {
+  type: "object";
+}
+
+export type ObjectSchema = ImplicitObjectSchemaDef | ObjectSchemaDef;
+export type ObjectLike = ObjectSchema | "object";
 
 // Numeric Types
 
-export interface NumericSchemaInteger extends BaseSchema {
+export interface IntegerSchemaDef extends BaseSchema {
   type: "integer";
+  multipleOf?: number;
+  minimum?: number;
+  maximum?: number;
+  exclusiveMinimum?: number;
+  exclusiveMaximum?: number;
 }
 
-export interface NumericSchemaNumber extends BaseSchema {
+export interface NumberSchemaDef extends BaseSchema {
   type: "number";
   multipleOf?: number;
   minimum?: number;
   maximum?: number;
-  exclusiveMinimum?: boolean;
-  exclusiveMaximum?: boolean;
+  exclusiveMinimum?: number;
+  exclusiveMaximum?: number;
 }
 
-export type NumericSchema = NumericSchemaInteger | "integer" | NumericSchemaNumber | "number";
+export type NumericSchema = IntegerSchemaDef | NumberSchemaDef;
+export type NumericLike = NumericSchema | "integer" | "number";
 
 // Array
 
 interface ArraySchemaDef extends BaseSchema {
   type: "array";
   items?: Schema;
-  minItems?: number;
   maxItems?: number;
+  minItems?: number;
+  prefixItems?: Schema[];
+  uniqueItems?: boolean;
 }
 
-export type ArraySchema = ArraySchemaDef | "array";
+export type ArraySchema = ArraySchemaDef;
+export type ArrayLike = ArraySchema | "array";
 
 // String
 
@@ -61,7 +83,8 @@ export interface StringSchemaDef extends BaseSchema {
   format?: string;
 }
 
-export type StringSchema = StringSchemaDef | "string";
+export type StringSchema = StringSchemaDef;
+export type StringLike = StringSchema | "string";
 
 // Boolean
 
@@ -69,7 +92,8 @@ export interface BooleanSchemaDef extends BaseSchema {
   type: "boolean";
 }
 
-export type BooleanSchema = BooleanSchemaDef | "boolean";
+export type BooleanSchema = BooleanSchemaDef;
+export type BooleanLike = StringSchema | "boolean";
 
 // Null
 
@@ -77,45 +101,34 @@ export interface NullSchemaDef extends BaseSchema {
   type: "null";
 }
 
-export type NullSchema = NullSchemaDef | "null";
+export type NullSchema = NullSchemaDef;
+export type NullLike = NullSchema | "null";
 
 // Any shcema
 
-export type AnySchema = "any";
+export interface AnySchemaDef extends BaseSchema {
+  type: "any";
+}
 
-// AnyOf Schema
+export type AnySchema = AnySchemaDef;
+export type AnyLike = AnySchema | "any";
 
-type AnyOfSchemaDef = {
-  anyOf: Array<Schema>;
+// Schema compositions
+
+export type AllOfLikeSchema = Omit<SchemaDef, "allOf"> & {
+  allOf: Partial<Schema>[];
 };
 
-type OneOfSchemaDef = {
-  oneOf: Array<Schema>;
+export type OneOfLikeSchema = Omit<SchemaDef, "oneOf"> & {
+  oneOf: Partial<Schema>[];
 };
 
-type AnyOfAsTypeArray = {
-  type: Array<Schema>;
-};
-
-export type AnyOfSchema = AnyOfSchemaDef | OneOfSchemaDef | AnyOfAsTypeArray | Schema[];
-
-// AllOf Schema
-
-export type AllOfSchemaDef = {
-  allOf: Array<Schema>;
-};
-
-type AllOfDiscriminator = {
-  propertyName: string;
-  mapping?: Record<string, string>;
-};
-
-export type AllOfWithDiscriminatorDef = {
-  allOf: Array<Schema>;
-  discriminator: AllOfDiscriminator;
-};
-
-export type AllOfSchema = AllOfSchemaDef | AllOfWithDiscriminatorDef;
+export type AnyOfShorthandDef = Schema[];
+export type AnyOfLikeSchema =
+  | AnyOfShorthandDef
+  | (Omit<SchemaDef, "anyOf"> & {
+      anyOf: Partial<Schema>[];
+    });
 
 // Ref schema
 
@@ -123,15 +136,28 @@ export type RefSchema = { $ref: string };
 
 // Type union
 
-export type Schema =
+// Definition shorthands (strings)
+export type SchemaStr =
+  | "object"
+  | "array"
+  | "integer"
+  | "number"
+  | "string"
+  | "boolean"
+  | "null"
+  | "any";
+
+// Structured definitions (Objects)
+export type SchemaDef =
   | ObjectSchema
   | ArraySchema
   | StringSchema
   | NumericSchema
   | AnySchema
-  | AllOfSchema
-  | AnyOfSchema
   | BooleanSchema
   | NullSchema
   | EnumSchema
-  | RefSchema;
+  | ConstSchema;
+
+// The union of all possible schema types
+export type Schema = SchemaDef | AnyOfShorthandDef | SchemaStr | RefSchema;

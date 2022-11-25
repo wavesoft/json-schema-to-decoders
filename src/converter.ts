@@ -1,27 +1,24 @@
 import type {
-  AllOfSchema,
-  AnyOfSchema,
+  AllOfLikeSchema,
+  AnyOfLikeSchema,
   AnySchema,
-  ArraySchema,
+  ArrayLike,
   BooleanSchema,
+  ConstSchema,
   EnumSchema,
   NullSchema,
   NumericSchema,
   ObjectSchema,
+  OneOfLikeSchema,
   RefSchema,
   Schema,
+  SchemaDef,
   StringSchema,
   StringSchemaDef,
 } from "./types";
-
-interface DecoderLib {
-  /**
-   * Indicates that the union decoder is available (check README.md)
-   *
-   * This variable should point to the function name for the `union` decoder.
-   */
-  union?: string;
-}
+import type * as LibDecoders from "./decoders";
+import deepMerge from "ts-deepmerge";
+import { UnsupportedError, RequiredConfigurationError } from "./errors";
 
 export interface ConverterOptions {
   /**
@@ -30,15 +27,44 @@ export interface ConverterOptions {
   nsPrefix?: string;
 
   /**
+   * An optional namespace where to look for extra decoder library functions
+   * exposed by the `json-schema-to-decoders` package.
+   *
+   * If not specified, all of the avanced decoders would be disabled
+   */
+  nsLib?: string;
+
+  /**
    * An optional function to call when a $ref is encountered.
    * The returned value will replace the contents of that ref.
    */
-  resolveRef?: (name: string) => string;
+  resolveRefPointer?: (name: string) => string;
 
   /**
-   * Indicates that non-standard decoders that are available
+   * An optional function to call when a $ref is encountered
+   * and the schema of it is required.
    */
-  lib?: DecoderLib;
+  resolveRefSchema?: (name: string) => Schema;
+}
+
+/**
+ * The run-time context throughout the conversion process
+ */
+interface ConvertContext {
+  /**
+   * The options given
+   */
+  options: ConverterOptions;
+
+  /**
+   * Library functions that were consumed
+   */
+  libUsage: Record<keyof typeof LibDecoders, number>;
+
+  /**
+   * The current path in the schema
+   */
+  path: string[];
 }
 
 const isValidName = (str: string) => /^(?!\d)[\w$]+$/.test(str);
@@ -93,106 +119,225 @@ function getSchemaComment(schema: Schema): string[] {
   return wrapLines("/* ", lines, " */", "   ");
 }
 
-function convertObject(obj: ObjectSchema, opt: ConverterOptions): string[] {
-  const { nsPrefix } = opt;
-  // There are two cases where we can do partial matching
-  const inexact =
-    typeof obj === "string" || // Plain 'object' types imply loosely matched objects
-    (typeof obj !== "string" && obj.additionalProperties === true); // Objects with additional properties
+function convertObject(obj: ObjectSchema, opt: ConvertContext): string[] {
+  const { nsPrefix, nsLib } = opt.options;
+  const chain: string[][] = [];
 
-  // Prepare the return lines
-  let ret: string[] = [`${nsPrefix}${inexact ? "inexact" : "object"}({`];
-  if (typeof obj !== "string") {
-    const required = obj.required ?? [];
+  // Non-structured objects require string properties but don't validate the values
+  if (typeof obj === "string") {
+    return [`${nsPrefix}dict(${nsPrefix}unknown)`];
+  }
+
+  // Check if we should perform exact matching
+  const exactProps = obj.additionalProperties === false && !obj.patternProperties;
+
+  // Create the base decoder for validating either well-known properties or a gneric
+  // dict type, either strictly or loosely. We will then follow-up chaining additional
+  // validators.
+  const required = obj.required ?? [];
+  const props = obj.properties ?? {};
+  const keys = Object.keys(props);
+  keys.sort();
+  if (keys.length) {
     const propLines: string[] = [];
-    const schemaLines: string[] = [];
-    const props = obj.properties ?? {};
-    const keys = Object.keys(props);
-    keys.sort();
-
-    // Process well-known properties
     for (const name of keys) {
       const schema = props[name]!;
+      const propOpt = {
+        ...opt,
+        path: opt.path.concat(name),
+      };
       propLines.push(...getSchemaComment(schema));
       if (required.includes(name)) {
-        propLines.push(...wrapLines(`${escapeName(name)}: `, convertUnknown(schema, opt), ","));
+        propLines.push(...wrapLines(`${escapeName(name)}: `, convertUnknown(schema, propOpt), ","));
       } else {
         propLines.push(
           ...wrapLines(
             `${escapeName(name)}: ${nsPrefix}optional(`,
-            convertUnknown(schema, opt),
+            convertUnknown(schema, propOpt),
             "),"
           )
         );
       }
     }
+    chain.push([
+      `${nsPrefix}${exactProps ? "exact" : "inexact"}({`,
+      ...indentLines(propLines, 2),
+      `})`,
+    ]);
+  } else {
+    // If there are no validation cases included, return the default validation
+    chain.push([`${nsPrefix}dict(${nsPrefix}unknown)`]);
+  }
 
-    // If the additional properties is a schema, create a decoder for that schema
-    if ("additionalProperties" in obj && typeof obj.additionalProperties === "object") {
-      const schema = convertUnknown(obj.additionalProperties, opt);
-      schemaLines.push(...wrapLines(`${nsPrefix}dict(`, schema, `)`));
-    }
+  // If we have pattern properties, add a custom rejection function for that
+  if (obj.patternProperties != null && Object.keys(obj.patternProperties).length > 0) {
+    const rejectFn: string[] = [];
+    // First generate the decoders that can match the individual patterns
+    Object.entries(obj.patternProperties).forEach(([key, dec], idx) => {
+      const schemaLines = convertUnknown(dec, {
+        ...opt,
+        path: opt.path.concat("#patternProperties", key),
+      });
+      rejectFn.push(...wrapLines(`const dec_${idx} = `, indentLines(schemaLines, 2), `;`));
+    });
 
-    if (schemaLines.length && propLines.length) {
-      // If we have both schema and well-defined props, create a blend
-      ret.push(...indentLines(propLines, 2));
-      ret.push("})");
-
-      // We must use the union decoder for this
-      const union = opt.lib?.union;
-      if (!union) {
-        return [`/* Requires 'union' decoder to work */`];
-      }
-
-      return wrapLines(
-        `${union}(`,
-        [
-          // Include the explicit properties
-          ...wrapLines("", indentLines(ret, 2), ","),
-          // Include the dict properties
-          ...indentLines(schemaLines, 2),
-        ],
-        `)`
+    // Then generate the property checkers using regexp
+    rejectFn.push(`for (const key in obj) {`);
+    Object.keys(obj.patternProperties).forEach((key, idx) => {
+      const prefix = idx > 0 ? `} else if ` : `if `;
+      rejectFn.push(
+        `  ${prefix} (new RegExp(${JSON.stringify(key)}).exec(key)) {`,
+        `    if (!dec_${idx}.decode(obj[key]).ok) {`,
+        `      return \`Invalid property "\${key}"\`;`,
+        `    }`
       );
-    } else if (schemaLines.length) {
-      // If we have only schema, use only the dict decoder
-      return schemaLines;
-    } else {
-      // If we have only properties, include them in the result
-      ret.push(...indentLines(propLines, 2));
-    }
-  }
-  ret.push("})");
+    });
+    rejectFn.push(`  }`);
+    rejectFn.push(`}`);
+    rejectFn.push(`return null;`);
 
-  // If thre is an `allOf` property, convert the object into a union,
-  // including the additional props from the allOf
-  if (typeof obj === "object" && obj.allOf) {
-    const union = opt.lib?.union;
-    if (!union) {
-      return [`/* Requires 'union' decoder to work */`];
-    }
-
-    // Wrap object definition and include additional schemas
-    ret = [`${union}(`, ...wrapLines("", ret, ",")];
-    const schemaLines: string[] = [];
-    for (const schema of obj.allOf) {
-      schemaLines.push(...wrapLines("", convertUnknown(schema, opt), ","));
-    }
-    ret.push(...indentLines(schemaLines, 2));
-    ret.push(")");
+    // Include the function
+    chain.push([`reject((obj) => {`, ...indentLines(rejectFn, 2), `})`]);
   }
 
-  return ret;
+  // If we have additional properties specified, chain with additional validator
+  if (obj.additionalProperties != null && typeof obj.additionalProperties === "object") {
+    const schemaLines = convertUnknown(obj.additionalProperties, {
+      ...opt,
+      path: opt.path.concat("#additionalProperties"),
+    });
+    const rejectFn: string[] = [];
+    rejectFn.push(...wrapLines(`const dec = `, indentLines(schemaLines, 2), `;`));
+    rejectFn.push(`const known = ${JSON.stringify(keys)};`);
+    rejectFn.push(
+      `for (const key in obj) {`,
+      `  if (!known.includes(key)) {`,
+      `    if (!dec.decode(obj[key]).ok) {`,
+      `      return \`Invalid property "\${key}"\`;`,
+      `    }`,
+      `  }`,
+      `}`,
+      `return null;`
+    );
+
+    // Include the function
+    chain.push([`reject((obj) => {`, ...indentLines(rejectFn, 2), `})`]);
+  }
+
+  // Add propertyNames validator
+  if (obj.propertyNames != null) {
+    const rejectFn: string[] = [];
+    rejectFn.push(
+      `const match = new RegExp(${JSON.stringify(obj.propertyNames.pattern)});`,
+      `for (const key in obj) {`,
+      `  if (!match.exec(key)) {`,
+      `    return \`Invalid property name "\${key}"\`;`,
+      `  }`,
+      `}`,
+      `return null;`
+    );
+
+    // Include the function
+    chain.push([`reject((obj) => {`, ...indentLines(rejectFn, 2), `})`]);
+  }
+
+  // Apply optional property validators
+  if (obj.minProperties != null) {
+    chain.push([
+      `refine((n) => Object.keys(n).length >= ${obj.minProperties}, "Must contain at least ${obj.minProperties} items")`,
+    ]);
+  }
+  if (obj.maxProperties != null) {
+    chain.push([
+      `refine((n) => Object.keys(n).length <= ${obj.maxProperties}, "Must contain at most ${obj.maxProperties} items")`,
+    ]);
+  }
+
+  return ([] as string[]).concat(
+    ...chain.map((c, i) => (i > 0 ? indentLines(wrapLines(".", c, ""), 2) : c))
+  );
 }
 
-function convertArray(obj: ArraySchema, opt: ConverterOptions): string[] {
-  const { nsPrefix } = opt;
-  const schema = typeof obj === "string" ? "any" : obj.items ?? "any";
-  return wrapLines(`${nsPrefix}array(`, convertUnknown(schema, opt), ")");
+function convertArray(obj: ArrayLike, opt: ConvertContext): string[] {
+  const { nsPrefix } = opt.options;
+  const chain: string[][] = [];
+  if (typeof obj === "string") {
+    return wrapLines(`${nsPrefix}array(`, convertUnknown("any", opt), ")");
+  }
+
+  // If we have a prefix, we should create a tuple validator
+  if (obj.prefixItems != null) {
+    const prefixCases: string[][] = [];
+    obj.prefixItems.forEach((s, idx) => {
+      prefixCases.push(
+        wrapLines(
+          "",
+          convertUnknown(s, {
+            ...opt,
+            path: opt.path.concat(`#prefixItems[${idx}}`),
+          }),
+          ","
+        )
+      );
+    });
+
+    // Since the JSONSchema spec supports *UP TO* the given number of items,
+    // we cannot implement this as a single tuple. So we must create N tuples,
+    // one for each prefix combination and join them with `either`
+    const eitherLines: string[] = [];
+    for (let i = 0; i <= prefixCases.length; ++i) {
+      const tuple = ([] as string[]).concat(...prefixCases.slice(0, i));
+      eitherLines.push(`${nsPrefix}tuple(`, ...indentLines(tuple, 2), `),`);
+    }
+
+    // TODO: Research how can we combine tuple with array, currently
+    //       this is not supported.
+    if (obj.items != null) {
+      throw new UnsupportedError(
+        opt.path.concat("#items"),
+        "Combining 'items' with 'prefixItems' is not supported"
+      );
+    }
+    chain.push([`${nsPrefix}either(`, ...indentLines(eitherLines, 2), ")"]);
+  } else {
+    // Otherwise generate the standard array schema
+    const base = wrapLines(`${nsPrefix}array(`, convertUnknown(obj.items ?? "any", opt), ")");
+    chain.push(base);
+  }
+
+  // Validate length
+  if (obj.minItems != null) {
+    chain.push([
+      `refine((n) => n.length >= ${obj.minItems}, "Must contain at least ${obj.minItems} items")`,
+    ]);
+  }
+  if (obj.maxItems != null) {
+    chain.push([
+      `refine((n) => n.length <= ${obj.maxItems}, "Must contain at most ${obj.maxItems} items")`,
+    ]);
+  }
+
+  // Validate uniqueness
+  if (obj.uniqueItems != null) {
+    chain.push([
+      `refine((n) => {`,
+      `  const unique = new Set();`,
+      `  return n.every((v) => {`,
+      `    if (unique.has(v)) return false;`,
+      `    unique.add(v);`,
+      `    return true;`,
+      `  })`,
+      `}, "Must only contain unique items")`,
+    ]);
+  }
+
+  return ([] as string[]).concat(
+    ...chain.map((c, i) => (i > 0 ? indentLines(wrapLines(".", c, ""), 2) : c))
+  );
 }
 
-function convertString(obj: StringSchema, opt: ConverterOptions): string[] {
-  const { nsPrefix } = opt;
+function convertString(obj: StringSchema, opt: ConvertContext): string[] {
+  const { nsPrefix, nsLib } = opt.options;
   const def: StringSchemaDef = typeof obj === "string" ? { type: "string" } : obj;
   if (def.pattern) {
     return [`${nsPrefix}regex(/${def.pattern}/)`];
@@ -201,6 +346,12 @@ function convertString(obj: StringSchema, opt: ConverterOptions): string[] {
     switch (def.format) {
       case "date-time":
         return [`${nsPrefix}iso8601`];
+      case "hostname":
+        // Borrowed from
+        // https://github.com/justinrainbow/json-schema/pull/287/files#diff-44020f0c0690a2a4c1c446e97185986c31b19374b4a99f4b0970c5df36279067R176
+        return [
+          `${nsPrefix}regex(/^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$/i)`,
+        ];
       case "email":
         return [`${nsPrefix}email`];
       case "uri":
@@ -209,23 +360,28 @@ function convertString(obj: StringSchema, opt: ConverterOptions): string[] {
         return [`${nsPrefix}uuid`];
     }
   }
-  if (def.minLength && def.minLength > 0) {
-    return [`${nsPrefix}nonEmptyString`];
+
+  const chain = [`${nsPrefix}string`];
+  if (def.minLength != null) {
+    chain.push(
+      `refine((n) => n.length >= ${def.minLength}, "Must be longer than ${def.minLength} characters")`
+    );
   }
-  return [`${nsPrefix}string`];
+  if (def.maxLength != null) {
+    chain.push(
+      `refine((n) => n.length <= ${def.maxLength}, "Must be shorter than ${def.maxLength} characters")`
+    );
+  }
+  return [chain.join(".")];
 }
 
-function convertAnyOf(obj: AnyOfSchema, opt: ConverterOptions): string[] {
-  const { nsPrefix } = opt;
+function convertAnyOf(obj: AnyOfLikeSchema, opt: ConvertContext): string[] {
+  const { nsPrefix } = opt.options;
   const ret: string[] = [`${nsPrefix}either(`];
   const schemaLines: string[] = [];
-  const types = Array.isArray(obj)
-    ? obj
-    : "type" in obj
-    ? obj.type
-    : "anyOf" in obj
-    ? obj.anyOf
-    : obj.oneOf ?? [];
+  const types: SchemaDef[] = Array.isArray(obj)
+    ? obj.map((s) => expandSchema(s, opt))
+    : getComposition("anyOf", obj, opt);
   for (const schema of types) {
     schemaLines.push(...wrapLines("", convertUnknown(schema, opt), ","));
   }
@@ -234,57 +390,140 @@ function convertAnyOf(obj: AnyOfSchema, opt: ConverterOptions): string[] {
   return ret;
 }
 
-function convertAllOf(obj: AllOfSchema, opt: ConverterOptions): string[] {
-  const { nsPrefix } = opt;
-  const ret: string[] = [];
+function convertOneOf(obj: OneOfLikeSchema, opt: ConvertContext): string[] {
+  const { oneOf, ...rest } = obj;
 
-  if ("discriminator" in obj) {
-    // NOTE: Normally we should use `taggedUnion` however it's not possible
-    //       to know the values for the discriminator. So instead we are
-    //       using the fallback to the next best thing: `either`
-    ret.push(`${nsPrefix}either(`);
-  } else {
-    const union = opt.lib?.union;
-    if (!union) {
-      return [`/* Requires 'union' decoder to work */`];
+  // TODO: Implement this properly instead of poly-filling this with `anyOf`
+  return convertAnyOf(
+    {
+      anyOf: oneOf,
+      ...rest,
+    },
+    opt
+  );
+}
+
+/**
+ * Expands a generic schema definition (that includes strings or arays in 'type')
+ * into an object-only schema definition
+ */
+function expandSchema(type: Partial<Schema>, opt: ConvertContext): Partial<SchemaDef> {
+  if (typeof type === "string") {
+    return { type: type };
+  } else if (Array.isArray(type)) {
+    return {
+      oneOf: type as Schema[],
+    };
+  } else if ("$ref" in type && type.$ref) {
+    if (!opt.options.resolveRefSchema) {
+      throw new RequiredConfigurationError(opt.path, "resolveRefSchema");
     }
+    return expandSchema(opt.options.resolveRefSchema(type.$ref), {
+      ...opt,
+      path: opt.path.concat("$ref"),
+    });
+  } else {
+    return type as SchemaDef;
+  }
+}
 
-    ret.push(`${union}(`);
+/**
+ * Extracts a schema composition definition, enriching it with the default
+ * schema properties of the base type
+ */
+function getComposition(
+  prop: "allOf" | "oneOf" | "anyOf",
+  type: SchemaDef,
+  opt: ConvertContext
+): SchemaDef[] {
+  if (prop in type) {
+    // Extract the root schema parameters
+    let { [prop]: _, ...rest } = type;
+
+    // Extract properties
+    return type[prop]!.map((schema) => {
+      return deepMerge(rest, expandSchema(schema, opt));
+    });
   }
 
-  const schemaLines: string[] = [];
-  for (const schema of obj.allOf) {
-    schemaLines.push(...wrapLines("", convertUnknown(schema, opt), ","));
-  }
-  ret.push(...indentLines(schemaLines, 2));
-  ret.push(")");
+  return [];
+}
 
+/**
+ * Combines an array of 'allOf' schemas into a single schema that
+ * can be uniformly validated.
+ */
+function combineAllOf(type: AllOfLikeSchema, opt: ConvertContext): SchemaDef {
+  const allOf = getComposition("allOf", type, opt);
+  let ret: SchemaDef = { type: "object" };
+  for (const schema of allOf) {
+    ret = deepMerge(ret, schema);
+  }
   return ret;
 }
 
-function convertNumber(obj: NumericSchema, opt: ConverterOptions): string[] {
-  const { nsPrefix } = opt;
+function convertAllOf(obj: AllOfLikeSchema, opt: ConvertContext): string[] {
+  // Combine all schema properties
+  const schema = combineAllOf(obj, {
+    ...opt,
+    path: opt.path.concat(`#allOf`),
+  });
+
+  return convertUnknown(schema, opt);
+}
+
+function convertNumber(obj: NumericSchema, opt: ConvertContext): string[] {
+  const { nsPrefix, nsLib } = opt.options;
+  const chain: string[] = [];
+
+  // Start the validation chain with the number type (integer or float-point)
   if (
     (typeof obj === "string" && obj === "integer") ||
     (typeof obj === "object" && obj.type === "integer")
   ) {
-    return [`${nsPrefix}integer`];
+    chain.push(`${nsPrefix}integer`);
+  } else {
+    chain.push(`${nsPrefix}number`);
   }
-  return [`${nsPrefix}number`];
+
+  // In case of full specifications, include additional validators
+  if (typeof obj === "object") {
+    // Include 'multipleOf' validator
+    if (obj.multipleOf != null) {
+      chain.push(
+        `refine((n) => n % ${obj.multipleOf} === 0, "Must be multiple of ${obj.multipleOf}")`
+      );
+    }
+    // Include 'minimum' validator
+    if (obj.exclusiveMinimum != null) {
+      chain.push(`refine((n) => n > ${obj.exclusiveMinimum}, "Must be > ${obj.exclusiveMinimum}")`);
+    } else if (obj.minimum != null) {
+      chain.push(`refine((n) => n >= ${obj.minimum}, "Must be >= ${obj.minimum}")`);
+    }
+    // Include 'maximum' validator
+    if (obj.exclusiveMaximum != null) {
+      chain.push(`refine((n) => n < ${obj.exclusiveMaximum}, "Must be < ${obj.exclusiveMaximum}")`);
+    } else if (obj.maximum != null) {
+      chain.push(`refine((n) => n <= ${obj.maximum}, "Must be <= ${obj.maximum}")`);
+    }
+  }
+
+  // Create a decoder chain
+  return [chain.join(".")];
 }
 
-function convertBoolean(obj: BooleanSchema, opt: ConverterOptions): string[] {
-  const { nsPrefix } = opt;
+function convertBoolean(obj: BooleanSchema, opt: ConvertContext): string[] {
+  const { nsPrefix } = opt.options;
   return [`${nsPrefix}boolean`];
 }
 
-function convertNull(obj: NullSchema, opt: ConverterOptions): string[] {
-  const { nsPrefix } = opt;
+function convertNull(obj: NullSchema, opt: ConvertContext): string[] {
+  const { nsPrefix } = opt.options;
   return [`${nsPrefix}null_`];
 }
 
-function covnertEnum(obj: EnumSchema, opt: ConverterOptions): string[] {
-  const { nsPrefix } = opt;
+function covnertEnum(obj: EnumSchema, opt: ConvertContext): string[] {
+  const { nsPrefix } = opt.options;
   const options = obj.enum ?? [];
   if (options.length < 3) {
     return [`${nsPrefix}oneOf(${JSON.stringify(obj.enum)})`];
@@ -294,14 +533,21 @@ function covnertEnum(obj: EnumSchema, opt: ConverterOptions): string[] {
   }
 }
 
+function convertConst(obj: ConstSchema, opt: ConvertContext): string[] {
+  const { nsPrefix } = opt.options;
+  return [`${nsPrefix}constant(${JSON.stringify(obj.const)})`];
+}
+
 function isObject(type: Schema): type is ObjectSchema {
   if (typeof type === "string") return type === "object";
-  if (!("type" in type)) return false;
+  // The schema is implicitly an object
+  if (!("type" in type)) return true;
   return type.type === "object";
 }
 
-function isArray(type: Schema): type is ArraySchema {
+function isArray(type: Schema): type is ArrayLike {
   if (typeof type === "string") return type === "array";
+  if (typeof type === "string") return false;
   if (!("type" in type)) return false;
   return type.type === "array";
 }
@@ -331,14 +577,16 @@ function isNull(type: Schema): type is NullSchema {
 }
 
 function isAny(type: Schema): type is AnySchema {
-  return typeof type === "string" && type === "any";
+  if (typeof type === "string" && type === "any") return true;
+  if (typeof type === "object" && "type" in type && type.type === "any") return true;
+  return false;
 }
 
 function isRef(type: Schema): type is RefSchema {
   return typeof type === "object" && "$ref" in type;
 }
 
-function isAnyOf(type: Schema): type is AnyOfSchema {
+function isAnyOf(type: Schema): type is AnyOfLikeSchema {
   if (typeof type !== "object") return false;
   if (Array.isArray(type)) return true;
   if ("type" in type && Array.isArray(type.type)) return true;
@@ -350,19 +598,43 @@ function isEnum(type: Schema): type is EnumSchema {
   return "enum" in type && type.enum != null;
 }
 
-function isAllOf(type: Schema): type is AllOfSchema {
+function isConst(type: Schema): type is ConstSchema {
+  if (typeof type !== "object") return false;
+  return "const" in type;
+}
+
+function isAllOf(type: Schema): type is AllOfLikeSchema {
   if (typeof type !== "object") return false;
   if ("allOf" in type && Array.isArray(type.allOf)) return true;
   return false;
 }
 
-function convertUnknown(type: Schema, opt: ConverterOptions): string[] {
-  const { nsPrefix, resolveRef } = opt;
+function isOneOf(type: Schema): type is OneOfLikeSchema {
+  if (typeof type !== "object") return false;
+  if ("oneOf" in type && Array.isArray(type.oneOf)) return true;
+  return false;
+}
 
+function convertUnknown(type: Schema, opt: ConvertContext): string[] {
+  const { nsPrefix, resolveRefPointer, resolveRefSchema } = opt.options;
+
+  // Process enums/consts in priority
   if (isEnum(type)) {
     return covnertEnum(type, opt);
+  } else if (isConst(type)) {
+    return convertConst(type, opt);
   }
 
+  // Then process schema composition
+  if (isAllOf(type)) {
+    return convertAllOf(type, opt);
+  } else if (isAnyOf(type)) {
+    return convertAnyOf(type, opt);
+  } else if (isOneOf(type)) {
+    return convertOneOf(type, opt);
+  }
+
+  // Finally process types
   if (isObject(type)) {
     return convertObject(type, opt);
   } else if (isArray(type)) {
@@ -371,10 +643,6 @@ function convertUnknown(type: Schema, opt: ConverterOptions): string[] {
     return convertString(type, opt);
   } else if (isNumeric(type)) {
     return convertNumber(type, opt);
-  } else if (isAnyOf(type)) {
-    return convertAnyOf(type, opt);
-  } else if (isAllOf(type)) {
-    return convertAllOf(type, opt);
   } else if (isBoolean(type)) {
     return convertBoolean(type, opt);
   } else if (isNull(type)) {
@@ -382,23 +650,33 @@ function convertUnknown(type: Schema, opt: ConverterOptions): string[] {
   } else if (isAny(type)) {
     return [`${nsPrefix}unknown`];
   } else if (isRef(type)) {
-    if (resolveRef) {
-      return [resolveRef(type.$ref)];
+    if (resolveRefPointer) {
+      return [resolveRefPointer(type.$ref)];
+    } else if (resolveRefSchema) {
+      return convertUnknown(resolveRefSchema(type.$ref), opt);
     } else {
-      return [`/* Unknown reference "${type.$ref}" */`];
+      throw new RequiredConfigurationError(opt.path, "resolveRefPointer");
     }
   }
 
-  return ["/* Unknown type */"];
+  throw new UnsupportedError(opt.path, `Unknown schema: ${JSON.stringify(type)}`);
 }
 
-export async function convertSchema(schema: Schema, options?: ConverterOptions): Promise<string> {
+export function convertSchema(schema: Schema, options?: ConverterOptions): string {
   const opt: ConverterOptions = {
+    nsLib: options?.nsLib ?? "",
     nsPrefix: options?.nsPrefix ?? "",
-    resolveRef: options?.resolveRef,
-    lib: options?.lib ?? {},
+    resolveRefPointer: options?.resolveRefPointer,
+    resolveRefSchema: options?.resolveRefSchema,
   };
-  const lines = convertUnknown(schema, opt);
+  const ctx: ConvertContext = {
+    options: opt,
+    path: [],
+    libUsage: {
+      union: 0,
+    },
+  };
+  const lines = convertUnknown(schema, ctx);
   return lines.join("\n");
 }
 

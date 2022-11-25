@@ -12,14 +12,16 @@
     "access": "public"
   },
   "devDependencies": {
+    "decoders": "^2.0.1",
     "eilos": "^1.0.17",
     "eilos-preset-typescript": "^1.0.19"
   },
   "scripts": {
     "build": "NODE_ENV=development eilos build",
-    "prepack": "NODE_ENV=production eilos build",
     "docs": "NODE_ENV=production eilos build && cp dist/index.js docs/lib.js",
-    "prepare": "eilos config-ide"
+    "prepack": "NODE_ENV=production eilos build",
+    "prepare": "eilos config-ide",
+    "test": "eilos test"
   },
   "eilos": {
     "library": "json-schema-to-decoder",
@@ -38,5 +40,8 @@
     "bin/*",
     "package.json",
     "README.md"
-  ]
+  ],
+  "dependencies": {
+    "ts-deepmerge": "^5.0.0"
+  }
 }
