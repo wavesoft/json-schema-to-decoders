@@ -25,6 +25,10 @@
   },
   "eilos": {
     "library": "json-schema-to-decoder",
+    "entry": {
+      "index": "./src/index.ts",
+      "decoders": "./src/decoders.ts"
+    },
     "externals": [
       "fs"
     ],
