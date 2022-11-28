@@ -78,6 +78,7 @@ The following table summarizes the supported conversion between JSON Schema type
 |                     | Unevaluated Properties   | -      |
 |                     | Extending Closed Schemas | -      |
 |                     | `properties`             | ✅     |
+|                     | `additionalProperties`   | ✅     |
 |                     | `required`               | ✅     |
 |                     | `patternProperties`      | ✅     |
 |                     | `propertyNames`          | ✅     |

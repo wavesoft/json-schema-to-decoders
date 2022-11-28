@@ -2,6 +2,7 @@
 // https://json-schema.org/understanding-json-schema/reference/object.html
 
 import { createValidator } from "./util/generator";
+import * as D from "decoders";
 
 describe("JSON Schema (Object)", () => {
   test("Basic Support", () => {
@@ -212,6 +213,38 @@ describe("JSON Schema (Object)", () => {
     expect(
       dec1.decode({
         "001 invalid": "value",
+      }).ok
+    ).toBeFalsy();
+  });
+
+  test("Refs in Properties", () => {
+    const dec1 = createValidator(
+      {
+        type: "object",
+        properties: {
+          name: {
+            $ref: "#/remote/string",
+          },
+        },
+      },
+      {
+        resolveRefPointer: (name) => `this.R.${name.split("/").pop()}`,
+        globals: {
+          R: {
+            string: D.string,
+            number: D.number,
+          },
+        },
+      }
+    );
+
+    const v1 = { name: "works" };
+    expect(dec1.decode(v1).ok).toBeTruthy();
+    expect(dec1.decode(v1).value).toEqual(v1);
+
+    expect(
+      dec1.decode({
+        name: 11,
       }).ok
     ).toBeFalsy();
   });

@@ -632,7 +632,18 @@ function isOneOf(type: Schema): type is OneOfLikeSchema {
 function convertUnknown(type: Schema, opt: ConvertContext): string[] {
   const { nsPrefix, resolveRefPointer, resolveRefSchema } = opt.options;
 
-  // Process enums/consts in priority
+  // Process refs first
+  if (isRef(type)) {
+    if (resolveRefPointer) {
+      return [resolveRefPointer(type.$ref)];
+    } else if (resolveRefSchema) {
+      return convertUnknown(resolveRefSchema(type.$ref), opt);
+    } else {
+      throw new RequiredConfigurationError(opt.path, "resolveRefPointer");
+    }
+  }
+
+  // Then enums/constsy
   if (isEnum(type)) {
     return covnertEnum(type, opt);
   } else if (isConst(type)) {
@@ -663,14 +674,6 @@ function convertUnknown(type: Schema, opt: ConvertContext): string[] {
     return convertNull(type, opt);
   } else if (isAny(type)) {
     return [`${nsPrefix}unknown`];
-  } else if (isRef(type)) {
-    if (resolveRefPointer) {
-      return [resolveRefPointer(type.$ref)];
-    } else if (resolveRefSchema) {
-      return convertUnknown(resolveRefSchema(type.$ref), opt);
-    } else {
-      throw new RequiredConfigurationError(opt.path, "resolveRefPointer");
-    }
   }
 
   throw new UnsupportedError(opt.path, `Unknown schema: ${JSON.stringify(type)}`);
