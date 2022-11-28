@@ -140,6 +140,27 @@ describe("JSON Schema (Object)", () => {
         office_number: 201,
       }).ok
     ).toBeFalsy();
+
+    ////////////////////////////////////////////////////////////////////////////////
+
+    const dec3 = createValidator({
+      type: "object",
+      additionalProperties: {
+        enum: ["a", "b"],
+      },
+    });
+
+    const v4 = { something: "a", another: "b" };
+    expect(dec3.decode(v4).ok).toBeTruthy();
+    expect(dec3.decode(v4).value).toEqual(v4);
+
+    expect(
+      dec3.decode({
+        something: "a",
+        another: "b",
+        invalid: "c",
+      }).ok
+    ).toBeFalsy();
   });
 
   test("Size", () => {

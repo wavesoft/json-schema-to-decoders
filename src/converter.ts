@@ -120,7 +120,7 @@ function getSchemaComment(schema: Schema): string[] {
 }
 
 function convertObject(obj: ObjectSchema, opt: ConvertContext): string[] {
-  const { nsPrefix, nsLib } = opt.options;
+  const { nsPrefix } = opt.options;
   const chain: string[][] = [];
 
   // Non-structured objects require string properties but don't validate the values
@@ -164,6 +164,14 @@ function convertObject(obj: ObjectSchema, opt: ConvertContext): string[] {
       ...indentLines(propLines, 2),
       `})`,
     ]);
+  } else if (obj.additionalProperties != null && typeof obj.additionalProperties === "object") {
+    // If we have 'additional properties' without any strictly defined property,
+    // we shoudl emit a dict.
+    const schemaLines = convertUnknown(obj.additionalProperties, {
+      ...opt,
+      path: opt.path.concat("#additionalProperties"),
+    });
+    chain.push(wrapLines(`${nsPrefix}dict(`, schemaLines, `)`));
   } else {
     // If there are no validation cases included, return the default validation
     chain.push([`${nsPrefix}dict(${nsPrefix}unknown)`]);
@@ -200,8 +208,13 @@ function convertObject(obj: ObjectSchema, opt: ConvertContext): string[] {
     chain.push([`reject((obj) => {`, ...indentLines(rejectFn, 2), `})`]);
   }
 
-  // If we have additional properties specified, chain with additional validator
-  if (obj.additionalProperties != null && typeof obj.additionalProperties === "object") {
+  // If we have both properties *AND* additional properties specified, chain the basic
+  // decoder with an additional validator
+  if (
+    keys.length &&
+    obj.additionalProperties != null &&
+    typeof obj.additionalProperties === "object"
+  ) {
     const schemaLines = convertUnknown(obj.additionalProperties, {
       ...opt,
       path: opt.path.concat("#additionalProperties"),
