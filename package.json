@@ -7,6 +7,19 @@
   "repository": "git@github.com:wavesoft/json-schema-to-decoders.git",
   "author": "Ioannis Charalampidis <johnys2@gmail.com>",
   "license": "MIT",
+  "keywords": [
+    "JSON",
+    "schema",
+    "json-schema",
+    "jsonschema",
+    "typescript",
+    "generator",
+    "validator",
+    "json-schema-validator",
+    "json-schema-validation",
+    "decoders",
+    "Decoder"
+  ],
   "bin": "bin/schema2decoders.js",
   "publishConfig": {
     "access": "public"
