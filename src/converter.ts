@@ -697,7 +697,7 @@ export function convertSchema(schema: Schema, options?: ConverterOptions): strin
   return lines.join("\n");
 }
 
-export async function convertContents(buffer: string, options?: ConverterOptions): Promise<string> {
+export function convertContents(buffer: string, options?: ConverterOptions): string {
   if (!buffer) return "";
   const content: Schema = JSON.parse(buffer);
   return convertSchema(content, options);
