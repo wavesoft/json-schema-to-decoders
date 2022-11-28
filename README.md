@@ -1,4 +1,4 @@
-# json-schema-to-decoders ![ci](https://github.com/wavesoft/json-schema-to-decoders/actions/workflows/ci-testing.yml/badge.svg) [![try-it](https://img.shields.io/badge/Try%20it-Live-blue)](https://wavesoft.github.io/json-schema-to-decoders/)
+# json-schema-to-decoders ![ci](https://github.com/wavesoft/json-schema-to-decoders/actions/workflows/ci-testing.yml/badge.svg) [![try-it](https://img.shields.io/badge/Try%20it-Live-blue)](https://wavesoft.github.io/json-schema-to-decoders/) [![npm](https://img.shields.io/npm/v/json-schema-to-decoders)](https://www.npmjs.com/package/json-schema-to-decoders)
 
 > Generates Typescript/Javascript [decoders](https://decoders.cc) source code expressions from JSON schema specifications.
 
