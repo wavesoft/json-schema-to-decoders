@@ -79,6 +79,10 @@ function indentLines(lines: string[], indent: number): string[] {
   return lines.map((l) => prefix + l);
 }
 
+function withStringPreprocess(nsPrefix: string | undefined, valuefn: string, decoderss: string) {
+  return [`${nsPrefix}string().transform((v) => ${decoderss}.value(${valuefn}(v)))`];
+}
+
 function wrapLines(
   prefix: string,
   lines: string[],
@@ -353,7 +357,7 @@ function convertString(obj: StringSchema, opt: ConvertContext): string[] {
   const { nsPrefix, nsLib } = opt.options;
   const def: StringSchemaDef = typeof obj === "string" ? { type: "string" } : obj;
   if (def.pattern) {
-    return [`${nsPrefix}regex(/${def.pattern}/)`];
+    return [`${nsPrefix}regex(/${def.pattern}/, "invalid expression")`];
   }
   if (def.format) {
     switch (def.format) {
@@ -486,7 +490,7 @@ function convertAllOf(obj: AllOfLikeSchema, opt: ConvertContext): string[] {
 }
 
 function convertNumber(obj: NumericSchema, opt: ConvertContext): string[] {
-  const { nsPrefix, nsLib } = opt.options;
+  const { nsPrefix } = opt.options;
   const chain: string[] = [];
 
   // Start the validation chain with the number type (integer or float-point)
